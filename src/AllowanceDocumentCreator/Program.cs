@@ -34,7 +34,7 @@ namespace AllowanceDocumentCreator
                 dataFilePath = Console.ReadLine();
                 if (string.IsNullOrWhiteSpace(dataFilePath))
                 {
-                    dataFilePath = Path.Combine(Directory.GetCurrentDirectory(), @"sample_data.xlsx");
+                    dataFilePath = Path.Combine(Directory.GetCurrentDirectory(), @"docs\sample_data.xlsx");
                     Console.WriteLine(dataFilePath);
                 }
             }
