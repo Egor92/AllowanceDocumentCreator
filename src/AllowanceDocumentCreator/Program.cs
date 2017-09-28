@@ -26,6 +26,8 @@ namespace AllowanceDocumentCreator
 
                 var outputDocumentPath = copyDocumentTemplateResult.Data;
                 WriteDataToDocument(outputData, outputDocumentPath);
+
+                DeleteDocumentTemplate(outputDocumentPath);
             }
             catch (Exception e)
             {
@@ -46,7 +48,7 @@ namespace AllowanceDocumentCreator
                 dataFilePath = Console.ReadLine();
                 if (string.IsNullOrWhiteSpace(dataFilePath))
                 {
-                    dataFilePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, @"docs\sample_data.xlsx");
+                    dataFilePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, @"sample_data.xlsx");
                     Console.WriteLine(dataFilePath);
                 }
             }
@@ -81,23 +83,27 @@ namespace AllowanceDocumentCreator
 
         private static Result<string> CopyDocumentTemplate(string dataFilePath)
         {
-            var documentTemplateFilePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, @"docs\document_template.xlsx");
+            var documentTemplateFilePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, @"document_template.xlsx");
             if (!File.Exists(documentTemplateFilePath))
             {
                 return Result.Fault<string>($"Не найден шаблон документа по пути {documentTemplateFilePath}");
             }
 
-            var dataFileName = Path.GetFileNameWithoutExtension(dataFilePath);
+            var dataFileName = Path.GetTempFileName();
             var outputDirectoryPath = Path.GetDirectoryName(dataFilePath);
 
-            var actualDateTime = DateTime.Now.ToString(@"yyyy-MM-dd HH-mm-ss");
-            var outputDocumentPath = Path.Combine(outputDirectoryPath, $"{dataFileName} ({actualDateTime}).xlsx");
+            var outputDocumentPath = Path.Combine(outputDirectoryPath, $"{dataFileName}.tmp");
 
             Console.WriteLine("Копирование файла шаблона...");
             File.Copy(documentTemplateFilePath, outputDocumentPath);
             WriteToConsole("Копирование файла шаблона завершено", ConsoleColor.Green);
 
             return Result.Success(outputDocumentPath);
+        }
+
+        private static void DeleteDocumentTemplate(string filePath)
+        {
+            File.Delete(filePath);
         }
 
         private static void WriteDataToDocument(OutputData outputData, string outputDocumentPath)
