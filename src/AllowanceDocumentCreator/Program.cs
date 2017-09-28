@@ -1,32 +1,44 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Globalization;
 using System.IO;
-using System.Runtime.InteropServices;
-using Microsoft.Office.Interop.Excel;
+using System.Linq;
 
 namespace AllowanceDocumentCreator
 {
-    public class RowData
-    {
-        public double A { get; set; }
-
-        public double B { get; set; }
-
-        public double C { get; set; }
-
-        public double D1 { get; set; }
-
-        public double D2 { get; set; }
-
-        public double E { get; set; }
-    }
-
     public class Program
     {
         public static void Main(string[] args)
         {
-            string dataFilePath = string.Empty;
+            try
+            {
+                var dataFilePath = GetDataFilePath(args);
+                WriteToConsole($"Выбранный файл: {dataFilePath}", ConsoleColor.Yellow);
+
+                var inputDataItems = GetInputDataItems(dataFilePath);
+                var outputData = GetOutputData(inputDataItems);
+
+                var copyDocumentTemplateResult = CopyDocumentTemplate(dataFilePath);
+                if (!copyDocumentTemplateResult.IsSuccess)
+                {
+                    WriteErrorMessage(copyDocumentTemplateResult.Message);
+                    return;
+                }
+
+                var outputDocumentPath = copyDocumentTemplateResult.Data;
+                WriteDataToDocument(outputData, outputDocumentPath);
+            }
+            catch (Exception e)
+            {
+                WriteErrorMessage(e);
+            }
+
+            Console.WriteLine("Нажмите любую клавишу, чтобы завершить работу программы");
+            Console.Read();
+        }
+
+        private static string GetDataFilePath(string[] args)
+        {
+            string dataFilePath;
 
             if (args.Length == 0)
             {
@@ -34,74 +46,87 @@ namespace AllowanceDocumentCreator
                 dataFilePath = Console.ReadLine();
                 if (string.IsNullOrWhiteSpace(dataFilePath))
                 {
-                    dataFilePath = Path.Combine(Directory.GetCurrentDirectory(), @"docs\sample_data.xlsx");
+                    dataFilePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, @"docs\sample_data.xlsx");
                     Console.WriteLine(dataFilePath);
                 }
             }
-            else if (args.Length > 1)
+            else
             {
                 dataFilePath = args[0];
             }
+            return dataFilePath;
+        }
 
-            Application xlApp;
-            Workbook xlWorkBook;
-            Worksheet xlWorkSheet;
-            try
+        private static InputDataItem[] GetInputDataItems(string dataFilePath)
+        {
+            List<InputDataItem> inputDataItems;
+            WriteToConsole($"Получение данных из файла {Path.GetFileName(dataFilePath)}", ConsoleColor.Yellow);
+            Console.WriteLine("Открытие файла...");
+            using (DocumentReader documentReader = new DocumentReader(dataFilePath))
             {
-                xlApp = new Application();
-                xlWorkBook = xlApp.Workbooks.Open(dataFilePath, 0, true, 5, "", "", true, XlPlatform.xlWindows, "\t", false, false, 0,
-                                                  true, 1, 0);
-                xlWorkSheet = (Worksheet) xlWorkBook.Worksheets.Item[1];
+                WriteToConsole("Файл открыт", ConsoleColor.Green);
+                Console.WriteLine("Считывание данных...");
+                inputDataItems = documentReader.Read();
+                WriteToConsole("Данные считаны", ConsoleColor.Green);
             }
-            catch (Exception e)
-            {
-                Console.ForegroundColor = ConsoleColor.Red;
-                Console.WriteLine("Произошла ошибка при открытии документа");
-                Console.WriteLine(e);
-                Console.ForegroundColor = ConsoleColor.Gray;
-                return;
-            }
+            return inputDataItems.ToArray();
+        }
 
-            List<RowData> data = new List<RowData>();
-            try
-            {
-                while (true)
-                {
-                    int rowIndex = data.Count * 2 + 1;
-                    var hasData = !string.IsNullOrWhiteSpace(xlWorkSheet.Cells[rowIndex, 1].Text);
-                    if (!hasData)
-                        break;
+        private static OutputData GetOutputData(InputDataItem[] inputDataItems)
+        {
+            var outputDataItems = inputDataItems.Select(x => new OutputDataItem(x))
+                                                .ToArray();
+            return new OutputData(outputDataItems);
+        }
 
-                    var rowData = new RowData
-                    {
-                        A = Convert.ToDouble(xlWorkSheet.Cells[rowIndex, 1].Text),
-                        B = Convert.ToDouble(xlWorkSheet.Cells[rowIndex, 2].Text),
-                        C = Convert.ToDouble(xlWorkSheet.Cells[rowIndex, 3].Text),
-                        D1 = Convert.ToDouble(xlWorkSheet.Cells[rowIndex, 4].Text),
-                        D2 = Convert.ToDouble(xlWorkSheet.Cells[rowIndex + 1, 4].Text),
-                        E = Convert.ToDouble(xlWorkSheet.Cells[rowIndex, 5].Text),
-                    };
-                    data.Add(rowData);
-                }
-            }
-            catch (Exception e)
+        private static Result<string> CopyDocumentTemplate(string dataFilePath)
+        {
+            var documentTemplateFilePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, @"docs\document_template.xlsx");
+            if (!File.Exists(documentTemplateFilePath))
             {
-                Console.ForegroundColor = ConsoleColor.Red;
-                Console.WriteLine("Произошла ошибка при чтении документа");
-                Console.WriteLine(e);
-                Console.ForegroundColor = ConsoleColor.Gray;
-                return;
+                return Result.Fault<string>($"Не найден шаблон документа по пути {documentTemplateFilePath}");
             }
 
-            Marshal.ReleaseComObject(xlWorkSheet);
+            var dataFileName = Path.GetFileNameWithoutExtension(dataFilePath);
+            var outputDirectoryPath = Path.GetDirectoryName(dataFilePath);
 
-            //close and release
-            xlWorkBook.Close();
-            Marshal.ReleaseComObject(xlWorkBook);
+            var actualDateTime = DateTime.Now.ToString(@"yyyy-MM-dd HH-mm-ss");
+            var outputDocumentPath = Path.Combine(outputDirectoryPath, $"{dataFileName} ({actualDateTime}).xlsx");
 
-            //quit and release
-            xlApp.Quit();
-            Marshal.ReleaseComObject(xlApp);
+            Console.WriteLine("Копирование файла шаблона...");
+            File.Copy(documentTemplateFilePath, outputDocumentPath);
+            WriteToConsole("Копирование файла шаблона завершено", ConsoleColor.Green);
+
+            return Result.Success(outputDocumentPath);
+        }
+
+        private static void WriteDataToDocument(OutputData outputData, string outputDocumentPath)
+        {
+            Console.WriteLine("Открытие файла на запись...");
+            using (DocumentWriter dataReader = new DocumentWriter(outputDocumentPath))
+            {
+                WriteToConsole("Файл открыт", ConsoleColor.Green);
+                Console.WriteLine("Запись данных...");
+                dataReader.Write(outputData);
+                WriteToConsole("Данные записаны", ConsoleColor.Green);
+            }
+        }
+
+        private static void WriteErrorMessage(object obj)
+        {
+            using (new UsingConsoleColor(ConsoleColor.Red))
+            {
+                Console.WriteLine("Произошла ошибка");
+                Console.WriteLine(obj);
+            }
+        }
+
+        private static void WriteToConsole(string str, ConsoleColor foreground)
+        {
+            using (new UsingConsoleColor(foreground))
+            {
+                Console.WriteLine(str);
+            }
         }
     }
 }
